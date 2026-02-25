@@ -1,0 +1,25 @@
+# Dependencies (we will run npm install inside the container if we ever build an image)
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Git and Docker configurations
+.git
+.gitignore
+.dockerignore
+docker-compose.yml
+Dockerfile
+
+# Documentation
+knowledge-docs/
+README.md
