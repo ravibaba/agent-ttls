@@ -1,10 +1,9 @@
 import { Annotation, StateGraph, END, START } from "@langchain/langgraph";
-import { BaseMessage, AIMessage } from "@langchain/core/messages";
+import { BaseMessage, AIMessage, ToolCall } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { MongoCheckpointSaver } from "../persistence/mongoSaver.js";
 import { StructuredTool } from "@langchain/core/tools";
-
 // State Annotation (Data Structure)
 export const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -19,6 +18,7 @@ export function createAgentNode(llm: BaseChatModel, tools: StructuredTool[]) {
   const modelWithTools = (llm as any).bindTools(tools);
   return async (state: typeof AgentState.State) => {
     const result = await modelWithTools.invoke(state.messages);
+    
     return { messages: [result] };
   };
 }
@@ -40,7 +40,7 @@ export function shouldContinue(state: typeof AgentState.State): "tools" | "__end
 export function compileAgent(
     llm: BaseChatModel, 
     tools: StructuredTool[], 
-    saver?: MongoCheckpointSaver
+    saver?: any
 ) {
   const modelNode = createAgentNode(llm, tools);
   const toolNode = new ToolNode(tools);

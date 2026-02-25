@@ -30,11 +30,17 @@ export class MongoCheckpointSaver extends BaseCheckpointSaver {
     const threadId = config.configurable?.thread_id;
     if (!threadId) throw new Error("Thread ID is required for checkpoints");
 
+    const checkpointTuple = await this.serde.dumpsTyped(checkpoint);
+    const metadataTuple = await this.serde.dumpsTyped(metadata);
+    
+    const checkpointStr = new TextDecoder().decode(checkpointTuple[1]);
+    const metadataStr = new TextDecoder().decode(metadataTuple[1]);
+
     const item = {
       thread_id: threadId,
       checkpoint_id: checkpoint.id,
-      checkpoint: checkpoint,
-      metadata: metadata,
+      checkpoint: checkpointStr,
+      metadata: metadataStr,
       timestamp: new Date(),
     };
 
@@ -42,7 +48,7 @@ export class MongoCheckpointSaver extends BaseCheckpointSaver {
     await this.collection.updateOne(
       { thread_id: threadId, checkpoint_id: checkpoint.id },
       { $set: item },
-      { upsert: true },
+      { upsert: true }
     );
 
     return config;
@@ -69,12 +75,25 @@ export class MongoCheckpointSaver extends BaseCheckpointSaver {
     });
     if (!doc) return undefined;
 
+    const checkpointStr = typeof doc.checkpoint === "string" ? doc.checkpoint : JSON.stringify(doc.checkpoint);
+    const metadataStr = typeof doc.metadata === "string" ? doc.metadata : JSON.stringify(doc.metadata);
+
+    const checkpoint = await this.serde.loadsTyped(
+        "json", 
+        new TextEncoder().encode(checkpointStr)
+    ) as Checkpoint;
+    
+    const metadata = await this.serde.loadsTyped(
+        "json", 
+        new TextEncoder().encode(metadataStr)
+    ) as CheckpointMetadata;
+
     return {
       config: {
         configurable: { thread_id: threadId, checkpoint_id: doc.checkpoint_id },
       },
-      checkpoint: doc.checkpoint as Checkpoint,
-      metadata: doc.metadata as CheckpointMetadata,
+      checkpoint: checkpoint,
+      metadata: metadata
     };
   }
 
@@ -89,6 +108,19 @@ export class MongoCheckpointSaver extends BaseCheckpointSaver {
       .sort({ timestamp: -1 });
 
     for await (const doc of cursor) {
+      const checkpointStr = typeof doc.checkpoint === "string" ? doc.checkpoint : JSON.stringify(doc.checkpoint);
+      const metadataStr = typeof doc.metadata === "string" ? doc.metadata : JSON.stringify(doc.metadata);
+
+      const checkpoint = await this.serde.loadsTyped(
+          "json", 
+          new TextEncoder().encode(checkpointStr)
+      ) as Checkpoint;
+      
+      const metadata = await this.serde.loadsTyped(
+          "json", 
+          new TextEncoder().encode(metadataStr)
+      ) as CheckpointMetadata;
+
       yield {
         config: {
           configurable: {
@@ -96,8 +128,8 @@ export class MongoCheckpointSaver extends BaseCheckpointSaver {
             checkpoint_id: doc.checkpoint_id,
           },
         },
-        checkpoint: doc.checkpoint as Checkpoint,
-        metadata: doc.metadata as CheckpointMetadata,
+        checkpoint: checkpoint,
+        metadata: metadata
       };
     }
   }

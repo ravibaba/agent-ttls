@@ -33,19 +33,37 @@ export class MCPIntegration {
         const mcpTools = await this.client.listTools();
 
         const langchainTools = mcpTools.tools.map((mcpTool) => {
-            // Convert MCP JSONSchema parameters into a Zod schema for LangChain's StructuredTool
-            // Note: In real-world, a full JSONSchema to Zod converter is safer.
-            // For brevity, we pass any record if we don't have a strict static map.
-            const s = z.record(z.string(), z.any());
+            // We must map it dynamically since LangGraph expects the input schema to strictly match 
+            // the z.object parameter that the LLM sends back.
+            // Build a dynamic Zod schema from the MCP inputSchema
+            const schemaProps: Record<string, z.ZodTypeAny> = {};
+            const inputSchema = mcpTool.inputSchema as any;
+            
+            if (inputSchema && inputSchema.properties) {
+                for (const key of Object.keys(inputSchema.properties)) {
+                    schemaProps[key] = z.any(); // We just need the keys to satisfy OpenAI
+                }
+            }
+            
+            // OpenAI requires type: "object"
+            const s = z.object(schemaProps);
 
-            // Wrap each MCP tool inside a LangChain standard tool function
             return tool(
                 async (input: any) => {
                     const result = await this.client.callTool({
                         name: mcpTool.name,
                         arguments: input
                     });
-                    return JSON.stringify(result.content);
+                    
+                    // The MCP protocol returns content as an array of items (text, image, etc).
+                    // We extract just the text block to feed back to the LLM as a plain string.
+                    if (result.isError) {
+                         return `Error: ${JSON.stringify(result.content)}`;
+                    }
+
+                    const contentArray = result.content as { type: string, text?: string }[];
+                    const textItem = contentArray.find((c) => c.type === 'text');
+                    return textItem ? textItem.text : JSON.stringify(result.content);
                 },
                 {
                     name: mcpTool.name,

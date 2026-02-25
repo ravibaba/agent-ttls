@@ -10,6 +10,8 @@ import { HumanMessage } from "@langchain/core/messages";
 
 dotenv.config();
 
+import { ChatOpenRouter } from "@langchain/openrouter";
+
 // S: The main file's single responsibility is orchestrating and starting everything
 // D: It creates the DB connections and Models, injecting them downwards (DIP)
 
@@ -22,19 +24,11 @@ async function main() {
     await dbClient.connect();
     const checkpointer = new MongoCheckpointSaver(dbClient);
 
-    // 2. Dependency: Model (OpenRouter Configuration - OCP/LSP)
-    // OpenRouter uses an OpenAI compatible endpoint
-    const llm = new ChatOpenAI({
-        modelName: process.env.OPENROUTER_MODEL || "arcee-ai/trinity-large-preview:free", // Example OpenRouter model
+    // 2. Dependency: Model (Native OpenRouter integration for proper tool support)
+    const llm = new ChatOpenRouter({
+        model: process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet",
         temperature: 0,
-        openAIApiKey: process.env.OPENROUTER_API_KEY,
-        configuration: {
-            baseURL: "https://openrouter.ai/api/v1",
-            defaultHeaders: {
-                "HTTP-Referer": "http://localhost:3000", // Required by OpenRouter
-                "X-Title": "LangGraph Agent", // Required by OpenRouter
-            }
-        }
+        // The API key is automatically picked up from OPENROUTER_API_KEY via dotenv
     });
 
     // 3. Dependency: MCP Tools
@@ -60,7 +54,7 @@ async function main() {
         output: process.stdout,
     });
 
-    const threadId = "user-session-1"; // Memory context ID
+    const threadId = "user-session-2"; // Memory context ID
 
     console.log("\nAgent Ready. Type 'exit' to quit.");
     while (true) {
@@ -74,11 +68,37 @@ async function main() {
         const config = { configurable: { thread_id: threadId } };
         
         console.log("\nAgent is thinking...");
-        const result = await agent.invoke(inputs, config);
         
-        // The last message in the state is the agent's response
-        const lastMessage = result.messages[result.messages.length - 1];
-        console.log(`\nAgent: ${lastMessage?.content || "No response"}`);
+        try {
+            const result = await agent.invoke(inputs, config);
+            
+            // LangChain agent outputs the tool call response, but sometimes the actual
+            // text response from the LLM is slightly earlier or nested correctly.
+            // We will loop backwards to find the last actual string content.
+            let finalResponse = "No response";
+            for (let i = result.messages.length - 1; i >= 0; i--) {
+                 const msg = result.messages[i];
+                 if (!msg || !msg.content) continue;
+    
+                 if (typeof msg.content === 'string' && msg.content.trim() !== "") {
+                     finalResponse = msg.content;
+                     break;
+                 } else if (Array.isArray(msg.content)) {
+                     // Some models return arrays of content blocks
+                     const contentArray = msg.content as any[];
+                     const textBlock = contentArray.find((c: any) => c.type === 'text' && c.text);
+                     if (textBlock && typeof textBlock.text === 'string' && textBlock.text.trim() !== '') {
+                         finalResponse = textBlock.text;
+                         break;
+                     }
+                 }
+            }
+            
+            console.log(`\nAgent: ${finalResponse}`);
+        } catch (error: any) {
+            console.error(`\n[Agent Error]: ${error.message || error}`);
+            console.log("Please try a different model or check your configuration.");
+        }
     }
 
     await dbClient.close();

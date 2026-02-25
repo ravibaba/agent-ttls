@@ -39,6 +39,9 @@ Our agent has two distinct jobs (SRP):
 1. **Model Node**: Invoke the LLM with the current conversation history.
 2. **Tools Node**: Execute a requested tool using the MCP client if the model asks for it.
 
+> [!NOTE]
+> We use the official `@langchain/openrouter` package and its `ChatOpenRouter` model client. This natively supports OpenRouter's tool calling quirks out of the box, without needing to hack the standard `ChatOpenAI` endpoint. We build a dynamic Zod schema to pass MCP parameters appropriately without encountering strict JSON schema validation errors.
+
 ```typescript
 // Abstraction to inject the model dependency (DIP)
 export function createModelNode(llm: BaseChatModel, mcpTools: any[]) {
